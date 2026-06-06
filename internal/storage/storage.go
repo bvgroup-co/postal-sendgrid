@@ -259,22 +259,20 @@ func (s *Store) SaveMessageMapping(ctx context.Context, mapping MessageMapping) 
 }
 
 func (s *Store) FindMessageMapping(ctx context.Context, shimMessageID string, postalMessageID string, postalMessageToken string) (MessageMapping, bool, error) {
-	query := `SELECT shim_message_id, postal_message_id, postal_message_token, plunk_email_id, plunk_project_id, recipient, recipients_json, sender, subject, custom_args_json, tracking_open_enabled, tracking_click_enabled, created_at, updated_at FROM message_mappings WHERE `
-	args := make([]any, 0, 3)
-	switch {
-	case shimMessageID != "":
-		query += `shim_message_id = ?`
-		args = append(args, shimMessageID)
-	case postalMessageID != "":
-		query += `postal_message_id = ?`
-		args = append(args, postalMessageID)
-	case postalMessageToken != "":
-		query += `postal_message_token = ?`
-		args = append(args, postalMessageToken)
-	default:
-		return MessageMapping{}, false, nil
+	for _, identifier := range uniqueNonEmpty(shimMessageID, postalMessageID, postalMessageToken) {
+		for _, column := range []string{"shim_message_id", "postal_message_id", "postal_message_token"} {
+			mapping, found, err := s.findMessageMappingByColumn(ctx, column, identifier)
+			if err != nil || found {
+				return mapping, found, err
+			}
+		}
 	}
-	row := s.db.QueryRowContext(ctx, query, args...)
+	return MessageMapping{}, false, nil
+}
+
+func (s *Store) findMessageMappingByColumn(ctx context.Context, column string, value string) (MessageMapping, bool, error) {
+	query := `SELECT shim_message_id, postal_message_id, postal_message_token, plunk_email_id, plunk_project_id, recipient, recipients_json, sender, subject, custom_args_json, tracking_open_enabled, tracking_click_enabled, created_at, updated_at FROM message_mappings WHERE ` + column + ` = ? LIMIT 1`
+	row := s.db.QueryRowContext(ctx, query, value)
 	mapping, err := scanMapping(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -407,6 +405,22 @@ func boolToInt(value bool) int {
 
 func isUniqueConstraint(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "constraint failed") || strings.Contains(err.Error(), "UNIQUE constraint failed"))
+}
+
+func uniqueNonEmpty(values ...string) []string {
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
 }
 
 func rollback(tx *sql.Tx) {

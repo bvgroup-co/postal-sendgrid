@@ -160,6 +160,46 @@ func TestWebhookUsesMatchingRecipientAndStableEventID(t *testing.T) {
 	}
 }
 
+func TestWebhookCorrelationFallsBackAcrossPostalIdentifiers(t *testing.T) {
+	var forwarded [][]sendgrid.Event
+	plunk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body := readBody(t, request)
+		var events []sendgrid.Event
+		if err := json.Unmarshal(body, &events); err != nil {
+			t.Fatal(err)
+		}
+		forwarded = append(forwarded, events)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer plunk.Close()
+
+	postalClient := &fakePostal{}
+	server, _, cleanup := testServerWithPlunk(t, postalClient, plunk.URL)
+	defer cleanup()
+
+	response := doJSON(t, server, http.MethodPost, "/v3/mail/send", realPlunkProviderPayload())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+
+	postalEvent := map[string]any{
+		"event":      "MessageLoaded",
+		"uuid":       "event-fallback-id",
+		"message_id": "postal-message-id",
+		"message": map[string]any{
+			"id": "unmatched-postal-id",
+			"to": "recipient@example.net",
+		},
+	}
+	webhookResponse := doJSON(t, server, http.MethodPost, "/webhooks/postal", postalEvent)
+	if webhookResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", webhookResponse.Code, webhookResponse.Body.String())
+	}
+	if len(forwarded) != 1 || forwarded[0][0].SGEventID != "event-fallback-id" {
+		t.Fatalf("expected fallback correlation to forward event, got %#v", forwarded)
+	}
+}
+
 func TestSendMailMapsPersonalizationPayload(t *testing.T) {
 	postalClient := &fakePostal{}
 	server, store, cleanup := testServer(t, postalClient)

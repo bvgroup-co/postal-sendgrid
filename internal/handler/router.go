@@ -149,6 +149,11 @@ func (r *Router) sendMail(w http.ResponseWriter, request *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	recipientsJSON, err := json.Marshal(recipients(payload.To))
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
 	mapping := storage.MessageMapping{
 		ShimMessageID:        shimMessageID,
 		PostalMessageID:      firstNonEmpty(postalResponse.MessageID, postalResponse.ID, postalResponse.Data.MessageID, postalResponse.Data.ID),
@@ -156,7 +161,7 @@ func (r *Router) sendMail(w http.ResponseWriter, request *http.Request) {
 		PlunkEmailID:         customArgs["plunk_email_id"],
 		PlunkProjectID:       customArgs["plunk_project_id"],
 		Recipient:            payload.To[0].Email,
-		RecipientsJSON:       string(mustMarshal(recipients(payload.To))),
+		RecipientsJSON:       string(recipientsJSON),
 		Sender:               payload.From.Email,
 		Subject:              payload.Subject,
 		CustomArgsJSON:       string(customArgsJSON),
@@ -272,14 +277,6 @@ func validateAddress(address sendgrid.MailAddress, field string) error {
 		return APIError{Status: http.StatusBadRequest, Message: "Email address is invalid", Field: field}
 	}
 	return nil
-}
-
-func mustMarshal(value any) []byte {
-	data, err := json.Marshal(value)
-	if err != nil {
-		panic(fmt.Sprintf("failed to serialize validated value: %v", err))
-	}
-	return data
 }
 
 func parseID(value string) (int64, error) {
