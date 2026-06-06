@@ -94,17 +94,22 @@ func (f *Forwarder) Handle(ctx context.Context, event postal.WebhookEvent) (Resu
 		return Result{}, errors.New("could not correlate Postal event to a shim message")
 	}
 
+	providerEventID := providerEventID(event, mapping.ShimMessageID)
+	recipient, err := eventRecipient(event, mapping)
+	if err != nil {
+		return Result{}, err
+	}
 	sendGridEvent := sendgrid.Event{
 		Event:       mappedEvent,
+		SGEventID:   providerEventID,
 		SGMessageID: mapping.ShimMessageID,
-		Email:       firstNonEmpty(event.Message.Recipient, firstMessageRecipient(event.Message.To), mapping.Recipient),
+		Email:       recipient,
 		Timestamp:   eventTimestamp(event.Timestamp),
 		URL:         event.URL,
 		Reason:      firstNonEmpty(event.Details, event.Status),
 		CustomArgs:  customArgs(mapping.CustomArgsJSON),
 	}
 	payload := []sendgrid.Event{sendGridEvent}
-	providerEventID := providerEventID(event, mapping.ShimMessageID)
 
 	forwarded, err := f.store.HasForwardedEvent(ctx, providerEventID)
 	if err != nil {
@@ -258,6 +263,32 @@ func eventTimestamp(timestamp int64) int64 {
 		return timestamp
 	}
 	return time.Now().Unix()
+}
+
+func eventRecipient(event postal.WebhookEvent, mapping storage.MessageMapping) (string, error) {
+	postalRecipient := firstNonEmpty(event.Message.Recipient, firstMessageRecipient(event.Message.To))
+	if postalRecipient == "" {
+		return mapping.Recipient, nil
+	}
+	for _, recipient := range mappingRecipients(mapping) {
+		if strings.EqualFold(postalRecipient, recipient) {
+			return recipient, nil
+		}
+	}
+	return "", fmt.Errorf("Postal event recipient %q is not in stored recipient mapping", postalRecipient)
+}
+
+func mappingRecipients(mapping storage.MessageMapping) []string {
+	var recipients []string
+	if mapping.RecipientsJSON != "" {
+		if err := json.Unmarshal([]byte(mapping.RecipientsJSON), &recipients); err != nil {
+			panic(fmt.Sprintf("stored recipients are invalid: %v", err))
+		}
+	}
+	if len(recipients) == 0 {
+		panic("stored recipients are empty")
+	}
+	return recipients
 }
 
 func firstMessageRecipient(recipients []string) string {

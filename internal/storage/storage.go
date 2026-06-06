@@ -50,6 +50,7 @@ type MessageMapping struct {
 	PlunkEmailID         string
 	PlunkProjectID       string
 	Recipient            string
+	RecipientsJSON       string
 	Sender               string
 	Subject              string
 	CustomArgsJSON       string
@@ -110,6 +111,7 @@ func (s *Store) migrate(ctx context.Context) error {
             plunk_email_id TEXT NOT NULL DEFAULT '',
             plunk_project_id TEXT NOT NULL DEFAULT '',
             recipient TEXT NOT NULL,
+            recipients_json TEXT NOT NULL DEFAULT '[]',
             sender TEXT NOT NULL,
             subject TEXT NOT NULL,
             custom_args_json TEXT NOT NULL DEFAULT '{}',
@@ -249,15 +251,15 @@ func (s *Store) SaveMessageMapping(ctx context.Context, mapping MessageMapping) 
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `INSERT INTO message_mappings(
         shim_message_id, postal_message_id, postal_message_token, plunk_email_id, plunk_project_id,
-        recipient, sender, subject, custom_args_json, tracking_open_enabled, tracking_click_enabled, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		recipient, recipients_json, sender, subject, custom_args_json, tracking_open_enabled, tracking_click_enabled, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		mapping.ShimMessageID, mapping.PostalMessageID, mapping.PostalMessageToken, mapping.PlunkEmailID, mapping.PlunkProjectID,
-		mapping.Recipient, mapping.Sender, mapping.Subject, mapping.CustomArgsJSON, boolToInt(mapping.TrackingOpenEnabled), boolToInt(mapping.TrackingClickEnabled), formatTime(now), formatTime(now))
+		mapping.Recipient, mapping.RecipientsJSON, mapping.Sender, mapping.Subject, mapping.CustomArgsJSON, boolToInt(mapping.TrackingOpenEnabled), boolToInt(mapping.TrackingClickEnabled), formatTime(now), formatTime(now))
 	return err
 }
 
 func (s *Store) FindMessageMapping(ctx context.Context, shimMessageID string, postalMessageID string, postalMessageToken string) (MessageMapping, bool, error) {
-	query := `SELECT shim_message_id, postal_message_id, postal_message_token, plunk_email_id, plunk_project_id, recipient, sender, subject, custom_args_json, tracking_open_enabled, tracking_click_enabled, created_at, updated_at FROM message_mappings WHERE `
+	query := `SELECT shim_message_id, postal_message_id, postal_message_token, plunk_email_id, plunk_project_id, recipient, recipients_json, sender, subject, custom_args_json, tracking_open_enabled, tracking_click_enabled, created_at, updated_at FROM message_mappings WHERE `
 	args := make([]any, 0, 3)
 	switch {
 	case shimMessageID != "":
@@ -365,7 +367,7 @@ func scanMapping(row rowScanner) (MessageMapping, error) {
 	var clickEnabled int
 	var created string
 	var updated string
-	err := row.Scan(&mapping.ShimMessageID, &mapping.PostalMessageID, &mapping.PostalMessageToken, &mapping.PlunkEmailID, &mapping.PlunkProjectID, &mapping.Recipient, &mapping.Sender, &mapping.Subject, &mapping.CustomArgsJSON, &openEnabled, &clickEnabled, &created, &updated)
+	err := row.Scan(&mapping.ShimMessageID, &mapping.PostalMessageID, &mapping.PostalMessageToken, &mapping.PlunkEmailID, &mapping.PlunkProjectID, &mapping.Recipient, &mapping.RecipientsJSON, &mapping.Sender, &mapping.Subject, &mapping.CustomArgsJSON, &openEnabled, &clickEnabled, &created, &updated)
 	if err != nil {
 		return MessageMapping{}, err
 	}

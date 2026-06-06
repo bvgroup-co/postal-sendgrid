@@ -51,6 +51,34 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	mailMaxBytes, err := getEnvInt64("MAIL_MAX_BYTES", defaultMailMaxBytes)
+	if err != nil {
+		return Config{}, err
+	}
+	webhookMaxBytes, err := getEnvInt64("WEBHOOK_MAX_BYTES", defaultWebhookMaxBytes)
+	if err != nil {
+		return Config{}, err
+	}
+	httpTimeout, err := getEnvDuration("HTTP_TIMEOUT", defaultHTTPTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	forwardAttempts, err := getEnvInt("FORWARD_ATTEMPTS", defaultForwardAttempts)
+	if err != nil {
+		return Config{}, err
+	}
+	forwardBackoff, err := getEnvDuration("FORWARD_BACKOFF", defaultForwardBackoff)
+	if err != nil {
+		return Config{}, err
+	}
+	dnsCheckEnabled, err := getEnvBool("DNS_CHECK_ENABLED", defaultDNSCheckEnabled)
+	if err != nil {
+		return Config{}, err
+	}
+	webhookSigningEnabled, err := getEnvBool("WEBHOOK_SIGNING_ENABLED", defaultWebhookSigningEnabled)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		ListenAddr:               getEnv("LISTEN_ADDR", defaultListenAddr),
@@ -59,14 +87,14 @@ func Load() (Config, error) {
 		PostalAPIKey:             os.Getenv("POSTAL_API_KEY"),
 		PlunkWebhookBaseURL:      trimTrailingSlash(os.Getenv("PLUNK_WEBHOOK_BASE_URL")),
 		DatabasePath:             getEnv("DATABASE_PATH", defaultDatabasePath),
-		MailMaxBytes:             getEnvInt64("MAIL_MAX_BYTES", defaultMailMaxBytes),
-		WebhookMaxBytes:          getEnvInt64("WEBHOOK_MAX_BYTES", defaultWebhookMaxBytes),
-		HTTPTimeout:              getEnvDuration("HTTP_TIMEOUT", defaultHTTPTimeout),
-		ForwardAttempts:          getEnvInt("FORWARD_ATTEMPTS", defaultForwardAttempts),
-		ForwardBackoff:           getEnvDuration("FORWARD_BACKOFF", defaultForwardBackoff),
-		DNSCheckEnabled:          getEnvBool("DNS_CHECK_ENABLED", defaultDNSCheckEnabled),
+		MailMaxBytes:             mailMaxBytes,
+		WebhookMaxBytes:          webhookMaxBytes,
+		HTTPTimeout:              httpTimeout,
+		ForwardAttempts:          forwardAttempts,
+		ForwardBackoff:           forwardBackoff,
+		DNSCheckEnabled:          dnsCheckEnabled,
 		PostalCNAMEValue:         getEnv("POSTAL_CNAME_VALUE", defaultPostalCNAMEValue),
-		WebhookSigningEnabled:    getEnvBool("WEBHOOK_SIGNING_ENABLED", defaultWebhookSigningEnabled),
+		WebhookSigningEnabled:    webhookSigningEnabled,
 		WebhookSigningPrivateKey: signingKey,
 	}
 
@@ -140,56 +168,56 @@ func getEnv(key string, fallback string) string {
 	return value
 }
 
-func getEnvInt64(key string, fallback int64) int64 {
+func getEnvInt64(key string, fallback int64) (int64, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
-	return parsed
+	return parsed, nil
 }
 
-func getEnvInt(key string, fallback int) int {
+func getEnvInt(key string, fallback int) (int, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
-	return parsed
+	return parsed, nil
 }
 
-func getEnvBool(key string, fallback bool) bool {
+func getEnvBool(key string, fallback bool) (bool, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return fallback
+		return false, fmt.Errorf("%s must be a boolean: %w", key, err)
 	}
-	return parsed
+	return parsed, nil
 }
 
-func getEnvDuration(key string, fallback time.Duration) time.Duration {
+func getEnvDuration(key string, fallback time.Duration) (time.Duration, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := time.ParseDuration(value)
 	if err == nil {
-		return parsed
+		return parsed, nil
 	}
 	seconds, err := strconv.Atoi(value)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("%s must be a duration or integer seconds: %w", key, err)
 	}
-	return time.Duration(seconds) * time.Second
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func trimTrailingSlash(value string) string {

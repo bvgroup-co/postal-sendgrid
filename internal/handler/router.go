@@ -5,7 +5,9 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/mail"
 	"strconv"
 	"strings"
 
@@ -154,6 +156,7 @@ func (r *Router) sendMail(w http.ResponseWriter, request *http.Request) {
 		PlunkEmailID:         customArgs["plunk_email_id"],
 		PlunkProjectID:       customArgs["plunk_project_id"],
 		Recipient:            payload.To[0].Email,
+		RecipientsJSON:       string(mustMarshal(recipients(payload.To))),
 		Sender:               payload.From.Email,
 		Subject:              payload.Subject,
 		CustomArgsJSON:       string(customArgsJSON),
@@ -188,8 +191,21 @@ func validateMail(payload sendgrid.MailSendRequest) error {
 	if payload.From.Email == "" {
 		return APIError{Status: http.StatusBadRequest, Message: "From email is required", Field: "from.email"}
 	}
+	if err := validateAddress(payload.From, "from.email"); err != nil {
+		return err
+	}
 	if len(payload.To) == 0 || payload.To[0].Email == "" {
 		return APIError{Status: http.StatusBadRequest, Message: "At least one recipient is required", Field: "to"}
+	}
+	for index, recipient := range payload.To {
+		if err := validateAddress(recipient, fmt.Sprintf("to.%d.email", index)); err != nil {
+			return err
+		}
+	}
+	if reply := payload.ReplyAddress(); reply != nil {
+		if err := validateAddress(*reply, "reply_to.email"); err != nil {
+			return err
+		}
 	}
 	if payload.Subject == "" {
 		return APIError{Status: http.StatusBadRequest, Message: "Subject is required", Field: "subject"}
@@ -236,10 +252,34 @@ func emailList(addresses []sendgrid.MailAddress) []string {
 }
 
 func formatAddress(address sendgrid.MailAddress) string {
-	if address.Name == "" {
-		return address.Email
+	return (&mail.Address{Name: address.Name, Address: address.Email}).String()
+}
+
+func recipients(addresses []sendgrid.MailAddress) []string {
+	emails := make([]string, 0, len(addresses))
+	for _, address := range addresses {
+		emails = append(emails, address.Email)
 	}
-	return address.Name + " <" + address.Email + ">"
+	return emails
+}
+
+func validateAddress(address sendgrid.MailAddress, field string) error {
+	if strings.ContainsAny(address.Name, "\r\n") {
+		return APIError{Status: http.StatusBadRequest, Message: "Email display name is invalid", Field: field}
+	}
+	parsed, err := mail.ParseAddress(address.Email)
+	if err != nil || parsed.Address != address.Email {
+		return APIError{Status: http.StatusBadRequest, Message: "Email address is invalid", Field: field}
+	}
+	return nil
+}
+
+func mustMarshal(value any) []byte {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("failed to serialize validated value: %v", err))
+	}
+	return data
 }
 
 func parseID(value string) (int64, error) {

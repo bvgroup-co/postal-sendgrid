@@ -117,6 +117,7 @@ type trackingOpenSettings struct {
 
 type Event struct {
 	Event       string            `json:"event"`
+	SGEventID   string            `json:"sg_event_id"`
 	SGMessageID string            `json:"sg_message_id"`
 	Email       string            `json:"email"`
 	Timestamp   int64             `json:"timestamp"`

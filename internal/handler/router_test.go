@@ -81,7 +81,7 @@ func TestSendMailMapsPlunkProviderJSONAndStoresMapping(t *testing.T) {
 	if shimMessageID == "" {
 		t.Fatal("missing x-message-id")
 	}
-	if postalClient.request.From != "Sender <sender@example.com>" || postalClient.request.To[0] != "Recipient <recipient@example.net>" {
+	if postalClient.request.From != "\"Sender\" <sender@example.com>" || postalClient.request.To[0] != "\"Recipient\" <recipient@example.net>" {
 		t.Fatalf("unexpected Postal request: %#v", postalClient.request)
 	}
 	if postalClient.request.Headers["X-Shim-Message-ID"] != shimMessageID || postalClient.request.Headers["List-Unsubscribe"] == "" {
@@ -92,8 +92,71 @@ func TestSendMailMapsPlunkProviderJSONAndStoresMapping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !found || mapping.PostalMessageID != "postal-message-id" || mapping.PlunkEmailID != "email_123" || mapping.TrackingOpenEnabled {
+	if !found || mapping.PostalMessageID != "postal-message-id" || mapping.PlunkEmailID != "email_123" || mapping.RecipientsJSON != `["recipient@example.net"]` || mapping.TrackingOpenEnabled {
 		t.Fatalf("unexpected mapping: %#v", mapping)
+	}
+}
+
+func TestSendMailRejectsMalformedAddress(t *testing.T) {
+	server, _, cleanup := testServer(t, &fakePostal{})
+	defer cleanup()
+
+	payload := realPlunkProviderPayload()
+	payload["from"] = map[string]string{"email": "sender@example.com\r\nBcc: injected@example.com", "name": "Sender"}
+	response := doJSON(t, server, http.MethodPost, "/v3/mail/send", payload)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestWebhookUsesMatchingRecipientAndStableEventID(t *testing.T) {
+	var forwarded [][]sendgrid.Event
+	plunk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body := readBody(t, request)
+		var events []sendgrid.Event
+		if err := json.Unmarshal(body, &events); err != nil {
+			t.Fatal(err)
+		}
+		forwarded = append(forwarded, events)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer plunk.Close()
+
+	postalClient := &fakePostal{}
+	server, _, cleanup := testServerWithPlunk(t, postalClient, plunk.URL)
+	defer cleanup()
+
+	payload := realPlunkProviderPayload()
+	payload["personalizations"] = []map[string]any{{
+		"to": []map[string]string{
+			{"email": "first@example.net", "name": "First"},
+			{"email": "second@example.net", "name": "Second"},
+		},
+	}}
+	response := doJSON(t, server, http.MethodPost, "/v3/mail/send", payload)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", response.Code, response.Body.String())
+	}
+
+	postalEvent := map[string]any{
+		"event":     "MessageLoaded",
+		"uuid":      "event-second-recipient",
+		"timestamp": 1760000000,
+		"message": map[string]any{
+			"message_id": "postal-message-id",
+			"to":         "second@example.net",
+		},
+	}
+	webhookResponse := doJSON(t, server, http.MethodPost, "/webhooks/postal", postalEvent)
+	if webhookResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", webhookResponse.Code, webhookResponse.Body.String())
+	}
+	if len(forwarded) != 1 || len(forwarded[0]) != 1 {
+		t.Fatalf("expected one forwarded event, got %#v", forwarded)
+	}
+	event := forwarded[0][0]
+	if event.Email != "second@example.net" || event.SGEventID != "event-second-recipient" {
+		t.Fatalf("unexpected forwarded event: %#v", event)
 	}
 }
 
@@ -180,7 +243,7 @@ func TestPostalWebhookForwardsSignedSendGridEventAndDeduplicates(t *testing.T) {
 		t.Fatalf("expected one forwarded payload, got %d", len(forwarded))
 	}
 	event := forwarded[0][0]
-	if event.Event != "open" || event.SGMessageID != sendResponse.Header().Get("x-message-id") || event.CustomArgs["plunk_email_id"] != "email_123" {
+	if event.Event != "open" || event.SGMessageID != sendResponse.Header().Get("x-message-id") || event.SGEventID != "event-1" || event.CustomArgs["plunk_email_id"] != "email_123" {
 		t.Fatalf("unexpected forwarded event: %#v", event)
 	}
 }
