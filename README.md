@@ -74,6 +74,56 @@ openssl ec -in sendgrid-webhook-signing-key.pem -pubout -out sendgrid-webhook-pu
 
 Configure Plunk with the contents of `sendgrid-webhook-public-key.pem` as `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY`.
 
+## Helm chart
+
+An in-repository Helm chart is available at `charts/postal-sendgrid`. The default image is pinned to `ghcr.io/bvgroup-co/postal-sendgrid:v0.1.0` and is updated with the chart metadata for each tag release.
+
+Render or install the chart with explicit runtime configuration:
+
+```sh
+helm template postal-sendgrid charts/postal-sendgrid \
+  --set config.postalBaseUrl=https://postal.example.com \
+  --set config.plunkWebhookBaseUrl=https://api.example.com \
+  --set secret.shimAuthToken=change-me \
+  --set secret.postalApiKey=postal-server-api-key \
+  --set secret.webhookSigningPrivateKey="$(cat ./sendgrid-webhook-signing-key.pem)"
+```
+
+Install from GHCR after a release:
+
+```sh
+helm install postal-sendgrid oci://ghcr.io/bvgroup-co/charts/postal-sendgrid \
+  --version 0.1.0 \
+  --set config.postalBaseUrl=https://postal.example.com \
+  --set config.plunkWebhookBaseUrl=https://api.example.com \
+  --set secret.shimAuthToken=change-me \
+  --set secret.postalApiKey=postal-server-api-key \
+  --set secret.webhookSigningPrivateKey="$(cat ./sendgrid-webhook-signing-key.pem)"
+```
+
+Use `existingSecret.name` to reference an operator-managed secret instead of creating one from values. The chart expects secret keys `SHIM_AUTH_TOKEN`, `POSTAL_API_KEY`, and `WEBHOOK_SIGNING_PRIVATE_KEY` by default.
+
+Persistent storage is enabled by default with a PVC mounted at `/data`; set `persistence.enabled=false` to use ephemeral storage.
+
+For webhook signing, either provide `secret.webhookSigningPrivateKey`, reference an existing secret, or set `webhookSigning.generateSecret=true` to generate a private key at template time. Export the matching public key to Plunk as `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` when using a managed key pair.
+
+## Release flow
+
+Releases are tag based. Before pushing a release tag, update:
+
+- `charts/postal-sendgrid/Chart.yaml` `version` to `X.Y.Z`
+- `charts/postal-sendgrid/Chart.yaml` `appVersion` to `vX.Y.Z`
+- `charts/postal-sendgrid/values.yaml` `image.tag` to `vX.Y.Z`
+
+Then push a semantic version tag:
+
+```sh
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+The release workflow enforces the `vX.Y.Z` tag format and matching chart metadata, publishes the multi-arch image as `ghcr.io/bvgroup-co/postal-sendgrid:vX.Y.Z`, then packages and publishes the OCI chart as `ghcr.io/bvgroup-co/charts/postal-sendgrid:X.Y.Z`.
+
 ## Postal webhook configuration
 
 Configure Postal to send message lifecycle webhooks to:
