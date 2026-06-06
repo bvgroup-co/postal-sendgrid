@@ -105,7 +105,7 @@ Use `existingSecret.name` to reference an operator-managed secret instead of cre
 
 Persistent storage is enabled by default with a PVC mounted at `/data`; set `persistence.enabled=false` to use ephemeral storage.
 
-For webhook signing, either provide `secret.webhookSigningPrivateKey`, reference an existing secret, or set `webhookSigning.generateSecret=true` to generate a private key at template time. Export the matching public key to Plunk as `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` when using a managed key pair.
+For webhook signing, either provide `secret.webhookSigningPrivateKey`, reference an existing secret, or set `webhookSigning.generateSecret=true` to let the chart create a key secret. Generated keys are reused on Helm upgrades with `lookup` when the existing secret is available, but uninstalling the release or deleting the secret rotates the key. Export the matching public key to Plunk as `SENDGRID_EVENT_WEBHOOK_PUBLIC_KEY` and keep the private and public keys in sync.
 
 ## Release flow
 
