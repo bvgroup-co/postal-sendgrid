@@ -1,5 +1,5 @@
 *.db
 *.sqlite
 coverage.out
-postal-sendgrid
+/postal-sendgrid
 tmp/

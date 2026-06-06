@@ -1,0 +1,99 @@
+{{- if eq .Values.image.tag "latest" }}
+{{- fail "image.tag must not be latest" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "postal-sendgrid.fullname" . }}
+  labels:
+    {{- include "postal-sendgrid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "postal-sendgrid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "postal-sendgrid.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "postal-sendgrid.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ required "image.tag is required and must not be latest" .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "postal-sendgrid.fullname" . }}
+          env:
+            - name: SHIM_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postal-sendgrid.secretName" . }}
+                  key: {{ .Values.existingSecret.keys.shimAuthToken }}
+            - name: POSTAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postal-sendgrid.secretName" . }}
+                  key: {{ .Values.existingSecret.keys.postalApiKey }}
+            {{- if or (eq (toString .Values.env.webhookSigningEnabled) "true") .Values.secret.webhookSigningPrivateKey .Values.webhookSigning.generateSecret }}
+            - name: WEBHOOK_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  {{- if .Values.webhookSigning.generateSecret }}
+                  name: {{ include "postal-sendgrid.webhookSigningSecretName" . }}
+                  key: {{ .Values.webhookSigning.privateKeySecretKey }}
+                  {{- else }}
+                  name: {{ include "postal-sendgrid.secretName" . }}
+                  key: {{ .Values.existingSecret.keys.webhookSigningPrivateKey }}
+                  {{- end }}
+                  optional: {{ ne (toString .Values.env.webhookSigningEnabled) "true" }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.storagePath | quote }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "postal-sendgrid.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
