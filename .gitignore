@@ -1,0 +1,5 @@
+*.db
+*.sqlite
+coverage.out
+postal-sendgrid
+tmp/
